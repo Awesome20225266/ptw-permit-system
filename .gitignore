@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Secrets — NEVER commit these
+.env
+.env.*
+*.env
+!.env.example
+
+# Build outputs
+build/
+dist/
+out/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Large binary / database files (GitHub limit: 100 MB)
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.arrow
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.bin
+*.weights
+*.onnx
+*.pt
+*.pth
+*.ckpt
