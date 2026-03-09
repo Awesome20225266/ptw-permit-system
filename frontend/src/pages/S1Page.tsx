@@ -1738,6 +1738,24 @@ export function S1Page() {
     staleTime: 5 * 60_000,
   })
 
+  // ── Guard: once allowed sites are known, reject any restored filterSite that
+  //    the current user is not permitted to see (e.g. left over from a previous
+  //    user's localStorage or a cross-user cache hit).
+  useEffect(() => {
+    if (sitesFetched && filterSite && !siteList.includes(filterSite)) {
+      setFilterSite('')
+      setPendingSite('')
+      try { localStorage.removeItem('s1_filters') } catch { /* ignore */ }
+    }
+  }, [sitesFetched]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Data queries are gated on:
+  //   1. filterSite is set (user clicked Apply Filter)
+  //   2. allowed sites have been fetched (sitesFetched)
+  //   3. filterSite is actually in the user's allowed list (prevents fetching
+  //      a stale site from localStorage before the guard effect can run)
+  const dataEnabled = !!filterSite && sitesFetched && siteList.includes(filterSite)
+
   // ── Work orders query (for KPIs + WorkOrdersTab) ────────────────────────
   const filterParams = {
     ...(filterSite  ? { site_name:   filterSite  } : {}),
@@ -1747,7 +1765,7 @@ export function S1Page() {
   const { data: woResult, isLoading: woLoading } = useQuery({
     queryKey: keys.s1WorkOrders(filterParams),
     queryFn: () => permitApi.s1WorkOrders(filterParams),
-    enabled: !!filterSite,
+    enabled: dataEnabled,
   })
   const kpis: WorkOrderKpis = woResult?.kpis ?? DEFAULT_KPIS
   const workOrders: WorkOrder[] = woResult?.data ?? []
@@ -1762,7 +1780,7 @@ export function S1Page() {
   const { data: ptws = [], isLoading: ptwsLoading } = useQuery({
     queryKey: keys.s1Ptw(ptwParams),
     queryFn: () => permitApi.s1ListPtw(ptwParams),
-    enabled: !!filterSite,
+    enabled: dataEnabled,
   })
 
   // ── All PTWs for site (no date filter) — used by WorkOrdersTab for View button ──
@@ -1772,7 +1790,7 @@ export function S1Page() {
   const { data: allSitePtws = [] } = useQuery({
     queryKey: keys.s1Ptw(siteOnlyPtwParams),
     queryFn: () => permitApi.s1ListPtw(siteOnlyPtwParams),
-    enabled: !!filterSite,
+    enabled: dataEnabled,
     staleTime: 2 * 60 * 1000,
   })
 

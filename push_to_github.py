@@ -8,9 +8,11 @@ Run with : python push_to_github.py
 """
 
 import os
+import re
 import sys
 import shutil
 import subprocess
+import time
 from datetime import datetime
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -144,6 +146,135 @@ def run_stream(cmd):
         lines.append(line)
     proc.wait()
     return proc.returncode, "".join(lines)
+
+
+# ── progress bar ──────────────────────────────────────────────────────────────
+
+# Matches git progress lines, e.g. "Writing objects:  75% (75/100)"
+_PROG_RE = re.compile(
+    r"(Counting|Compressing|Writing|Receiving|Resolving)[^:]*:\s+(\d+)%"
+)
+# Matches transfer-speed annotation, e.g. "1.23 MiB | 512 KiB/s"
+_SPEED_RE = re.compile(r"[\d.]+ \w+/s")
+
+# Overall weight of each phase so the master bar advances smoothly
+_PHASE_WEIGHT = {
+    "Counting":   (0,  15),
+    "Compressing":(15, 35),
+    "Writing":    (35, 90),
+    "Receiving":  (35, 90),
+    "Resolving":  (90, 99),
+}
+
+_BAR_WIDTH = 32   # characters inside the brackets
+
+
+def _render_bar(phase: str, phase_pct: int, speed: str, elapsed: float) -> str:
+    """Build a single-line progress string (no newline, starts with \\r)."""
+    lo, hi = _PHASE_WEIGHT.get(phase, (0, 99))
+    overall = lo + round((hi - lo) * phase_pct / 100)
+    overall = min(overall, 99)
+
+    filled  = round(_BAR_WIDTH * overall / 100)
+    empty   = _BAR_WIDTH - filled
+    bar     = "█" * filled + "░" * empty
+
+    speed_str = f"  {speed}" if speed else ""
+    elapsed_str = f"  {elapsed:.0f}s" if elapsed >= 1 else ""
+    label   = f"{phase:<12} {phase_pct:3d}%"
+
+    return (
+        f"\r  \033[36m[{bar}]\033[0m "
+        f"\033[1m{overall:3d}%\033[0m  "
+        f"{label}{speed_str}{elapsed_str}   "
+    )
+
+
+def push_with_progress(cmd: str) -> tuple[int, str]:
+    """
+    Run a git push command and display a live ASCII progress bar.
+
+    Git is told to always emit progress (--progress) so the bar works
+    even when stdout/stderr are not a real TTY (e.g. inside Cursor).
+    stderr is merged into stdout so we only need one pipe, avoiding
+    potential deadlocks from separate pipe buffers filling up.
+
+    Returns (exit_code, captured_output_text).
+    """
+    # Force git to emit progress lines even when not attached to a TTY
+    push_cmd = cmd if "--progress" in cmd else cmd + " --progress"
+
+    proc = subprocess.Popen(
+        push_cmd, shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,   # merge stderr → stdout (one pipe)
+        stdin=subprocess.DEVNULL,
+        env=GIT_ENV,
+        text=True, encoding="utf-8", errors="replace",
+    )
+
+    all_lines: list[str] = []
+    phase     = "Connecting"
+    phase_pct = 0
+    speed     = ""
+    t0        = time.monotonic()
+
+    # Print initial bar
+    sys.stdout.write(_render_bar(phase, 0, "", 0))
+    sys.stdout.flush()
+
+    buf = ""
+    while True:
+        chunk = proc.stdout.read(128)   # small reads → responsive updates
+        if not chunk:
+            break
+        buf += chunk
+
+        # Split on \r and \n (git uses \r to overwrite progress on same line)
+        parts = re.split(r"[\r\n]", buf)
+        buf   = parts[-1]              # keep the incomplete trailing fragment
+
+        for part in parts[:-1]:
+            cleaned = part.strip()
+            if not cleaned:
+                continue
+            all_lines.append(cleaned)
+
+            m = _PROG_RE.search(cleaned)
+            if m:
+                phase     = m.group(1)
+                phase_pct = min(int(m.group(2)), 100)
+                sm        = _SPEED_RE.search(cleaned)
+                speed     = sm.group(0) if sm else speed
+                sys.stdout.write(
+                    _render_bar(phase, phase_pct, speed, time.monotonic() - t0)
+                )
+                sys.stdout.flush()
+
+    # Flush any leftover buffer
+    if buf.strip():
+        all_lines.append(buf.strip())
+
+    proc.wait()
+    elapsed = time.monotonic() - t0
+
+    if proc.returncode == 0:
+        # Draw the completed bar (100 %)
+        lo, hi = _PHASE_WEIGHT.get(phase, (0, 99))
+        filled  = _BAR_WIDTH
+        bar     = "█" * filled
+        sys.stdout.write(
+            f"\r  \033[32m[{bar}]\033[0m "
+            f"\033[1m100%\033[0m  Done  \033[32m✓\033[0m  {elapsed:.1f}s   \n"
+        )
+    else:
+        sys.stdout.write(
+            f"\r  \033[31m[{'░' * _BAR_WIDTH}]\033[0m "
+            f"\033[1m{phase_pct:3d}%\033[0m  Failed \033[31m✗\033[0m           \n"
+        )
+    sys.stdout.flush()
+
+    return proc.returncode, "\n".join(all_lines)
 
 
 def step(n, msg):  print(f"\n[Step {n}] {msg}")
@@ -289,7 +420,7 @@ def rebuild_clean_history(reason="blocked files in git history"):
     print()
     info("Force-pushing clean history to GitHub...")
     print()
-    code = run_live(f"git push -u origin {BRANCH} --force")
+    code, _ = push_with_progress(f"git push -u origin {BRANCH} --force")
     return code == 0
 
 
@@ -427,10 +558,10 @@ def main():
 
     # ── Step 8: push ─────────────────────────────────────────────────────────
     step(8, "Pushing to GitHub...")
-    info("This may take a moment...")
+    info("This may take a moment — watch the progress bar below.")
     print()
 
-    push_code, push_out = run_stream(f"git push -u origin {BRANCH}")
+    push_code, push_out = push_with_progress(f"git push -u origin {BRANCH}")
 
     # ── Step 9: handle failures ───────────────────────────────────────────────
     if push_code != 0:
@@ -467,7 +598,7 @@ def main():
             print()
             info("Retrying with force-with-lease...")
             print()
-            retry_code, retry_out = run_stream(
+            retry_code, retry_out = push_with_progress(
                 f"git push -u origin {BRANCH} --force-with-lease"
             )
 

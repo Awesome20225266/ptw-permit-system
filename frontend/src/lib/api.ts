@@ -1,5 +1,6 @@
 import axios, { type AxiosError } from 'axios'
 import { useAuthStore } from '@/store/authStore'
+import { queryClient } from '@/lib/queryClient'
 import type {
   LoginRequest,
   LoginResponse,
@@ -42,11 +43,12 @@ http.interceptors.request.use((config) => {
   return config
 })
 
-// 401 → logout
+// 401 → clear cache then logout so the next user starts completely fresh
 http.interceptors.response.use(
   (r) => r,
   (err: AxiosError) => {
     if (err.response?.status === 401) {
+      queryClient.clear()
       useAuthStore.getState().logout()
     }
     return Promise.reject(err)

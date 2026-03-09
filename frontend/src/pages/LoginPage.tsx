@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
+import { queryClient } from '@/lib/queryClient'
 
 export function LoginPage() {
   const [username, setUsername] = useState('')
@@ -12,6 +13,16 @@ export function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: () => authApi.login({ username, password }),
     onSuccess: (data) => {
+      // Wipe every cached query so the new user never sees a previous
+      // user's site list, work orders, or any other user-scoped data.
+      queryClient.clear()
+      // Clear any saved S1 filter state so a new user starts with a blank filter
+      // (prevents a previous user's site selection being auto-applied).
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('s1_filters'))
+          .forEach((k) => localStorage.removeItem(k))
+      } catch { /* ignore storage errors */ }
       setToken(data.access_token)
       authApi.me().then((user) => setUser(user)).catch(() => {})
     },
