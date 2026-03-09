@@ -1,16 +1,40 @@
 """
 config.py — Pydantic Settings for Zel-EYE: OI FastAPI backend.
 
-Reads from environment variables or a .env file placed at the project root.
-Variable names are kept identical to the original secrets.toml so that
-existing deployment secrets can be copied verbatim.
+Reads from (in order of priority):
+  1. Real environment variables
+  2. secrets.toml at project root (if present)
+  3. .env at backend root
+  4. Defaults
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
+import tomllib
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Project root = parent of backend/
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = _BACKEND_DIR.parent
+_SECRETS_TOML = _PROJECT_ROOT / "secrets.toml"
+
+
+def _load_secrets_toml() -> None:
+    """Load secrets.toml into os.environ (only for keys not already set)."""
+    if not _SECRETS_TOML.exists():
+        return
+    with open(_SECRETS_TOML, "rb") as f:
+        data = tomllib.load(f)
+    for key, val in data.items():
+        env_key = key.upper().replace("-", "_")
+        if env_key not in os.environ and val is not None:
+            os.environ[env_key] = str(val).strip().strip('"')
+
+
+_load_secrets_toml()
 
 
 class Settings(BaseSettings):

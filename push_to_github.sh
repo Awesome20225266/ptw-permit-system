@@ -56,29 +56,93 @@ else
 fi
 
 # ------------------------------------------------------------
-# Step 3 — Create .gitignore if it does not exist
+# Step 3 — Create / refresh .gitignore
 # ------------------------------------------------------------
 step 3 "Checking .gitignore..."
-if [ ! -f ".gitignore" ]; then
-    info "Creating .gitignore..."
-    cat > .gitignore <<'EOF'
-node_modules
+
+CANONICAL_GITIGNORE='# Secrets — NEVER commit these
+secrets.toml
+secrets.toml.*
+*.secrets.toml
 .env
-build
-dist
-venv
-__pycache__
+.env.*
+*.env
+!.env.example
+!secrets.toml.example
+
+# Node / npm
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+build/
+dist/
+out/
+
+# Python virtual environments
+.venv/
+.venv_old/
+venv/
+env/
+backend/.venv/
+backend/.venv_old/
+__pycache__/
 *.pyc
 *.pyo
+
+# OS / editors
 .DS_Store
 Thumbs.db
-.idea
-.vscode
+.idea/
+.vscode/
+*.swp
+
+# Logs
 *.log
-EOF
-    success ".gitignore created."
+logs/
+
+# Large binary / database files
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.arrow
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.bin
+*.weights
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz'
+
+if [ ! -f ".gitignore" ]; then
+    printf '%s\n' "$CANONICAL_GITIGNORE" > .gitignore
+    success ".gitignore created with all exclusion rules."
 else
-    success ".gitignore already exists — skipping."
+    NEEDS_UPDATE=0
+    grep -q "secrets.toml" .gitignore || NEEDS_UPDATE=1
+    grep -q "\.duckdb"     .gitignore || NEEDS_UPDATE=1
+    grep -q "\.venv"       .gitignore || NEEDS_UPDATE=1
+    if [ "$NEEDS_UPDATE" -eq 1 ]; then
+        printf '%s\n' "$CANONICAL_GITIGNORE" > .gitignore
+        success ".gitignore refreshed with all exclusion rules."
+    else
+        success ".gitignore exists and is up to date."
+    fi
+fi
+
+# Untrack secrets.toml if it was previously committed
+if git ls-files --error-unmatch "secrets.toml" &>/dev/null 2>&1; then
+    git rm --cached "secrets.toml"
+    success "Untracked secrets.toml from git index."
 fi
 
 # ------------------------------------------------------------

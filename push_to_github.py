@@ -20,38 +20,56 @@ REPO_URL = "https://github.com/Awesome20225266/ptw-permit-system.git"
 BRANCH   = "main"
 
 GITIGNORE_CONTENTS = """\
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
-
-# Secrets — NEVER commit these
+# ─── Secrets — NEVER commit these ────────────────────────────────────────────
+secrets.toml
+secrets.toml.*
+*.secrets.toml
 .env
 .env.*
 *.env
 !.env.example
+!secrets.toml.example
 
-# Build outputs
+# ─── Node / npm ───────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
 build/
 dist/
 out/
+.next/
+.nuxt/
+.cache/
 
-# Python
+# ─── Python virtual environments ──────────────────────────────────────────────
+.venv/
+.venv_old/
 venv/
+env/
+backend/.venv/
+backend/.venv_old/
 __pycache__/
 *.pyc
 *.pyo
 
-# OS / editors
+# ─── OS / editors ─────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+*.swp
+*~
 
-# Logs
+# ─── Logs ─────────────────────────────────────────────────────────────────────
 *.log
+logs/
 
-# Large binary / database files (GitHub limit: 100 MB)
+# ─── Large binary / database files (GitHub 100 MB hard limit) ─────────────────
 *.duckdb
 *.duckdb.wal
 *.db
@@ -69,6 +87,8 @@ Thumbs.db
 *.pt
 *.pth
 *.ckpt
+*.npy
+*.npz
 """
 
 # Directories to untrack if accidentally committed
@@ -177,15 +197,23 @@ def clear_stuck_git_state():
 # ── file scanners ─────────────────────────────────────────────────────────────
 
 def find_tracked_env_files():
-    """Return list of .env files currently tracked by git."""
+    """Return list of secret/credential files currently tracked by git."""
     out, _ = run("git ls-files", check=False)
     if not out:
         return []
     result = []
     for line in out.splitlines():
-        l = line.strip().lower()
+        stripped = line.strip()
+        l = stripped.lower()
+        # .env patterns
         if l.endswith(".env") or "/.env" in l or l == ".env":
-            result.append(line.strip())
+            result.append(stripped)
+        # secrets.toml — our primary secrets file
+        elif l == "secrets.toml" or l.endswith("/secrets.toml") or l.endswith("\\secrets.toml"):
+            result.append(stripped)
+        # any *.toml that looks like it carries secrets
+        elif l.endswith(".secrets.toml") or "secrets." in l and l.endswith(".toml"):
+            result.append(stripped)
     return result
 
 
@@ -304,13 +332,21 @@ def main():
             fh.write(GITIGNORE_CONTENTS)
         ok(".gitignore created.")
     else:
-        # Ensure large-file rules exist in the current .gitignore
+        # Ensure all critical exclusions exist; rewrite if any are missing
         with open(".gitignore", "r", encoding="utf-8") as fh:
             existing = fh.read()
+        missing = []
+        if "secrets.toml" not in existing:
+            missing.append("secrets.toml rule")
         if "*.duckdb" not in existing:
-            with open(".gitignore", "a", encoding="utf-8") as fh:
-                fh.write("\n# Large binary / database files\n*.duckdb\n*.duckdb.wal\n*.db\n*.sqlite\n*.sqlite3\n")
-            ok(".gitignore updated — added large file exclusions.")
+            missing.append("large-file rules")
+        if ".venv" not in existing:
+            missing.append(".venv rule")
+        if missing:
+            # Overwrite with the canonical complete content
+            with open(".gitignore", "w", encoding="utf-8") as fh:
+                fh.write(GITIGNORE_CONTENTS)
+            ok(f".gitignore refreshed — added: {', '.join(missing)}.")
         else:
             ok(".gitignore exists and is up to date.")
 

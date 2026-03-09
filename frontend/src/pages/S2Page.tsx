@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { permitApi, downloadBlob } from '@/lib/api'
+import { permitApi, metaApi, downloadBlob } from '@/lib/api'
 import { keys } from '@/hooks/useQueryKeys'
 import { fmtDateTime } from '@/lib/utils'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Spinner, Modal } from '@/components/ui'
@@ -866,6 +866,8 @@ export function S2Page() {
   const [site, setSite] = useState('')
   const [startDate, setStartDate] = useState(todayStr)
   const [endDate, setEndDate] = useState(todayStr)
+  // Data queries are disabled until the user explicitly clicks Apply Filter
+  const [filterApplied, setFilterApplied] = useState(false)
 
   const [viewPtw, setViewPtw] = useState<PTWRequest | null>(null)
   const [processPtw, setProcessPtw] = useState<PTWRequest | null>(null)
@@ -896,14 +898,27 @@ export function S2Page() {
     end_date: endDate || undefined,
   }), [site, startDate, endDate])
 
-  const { data: sites = [] } = useQuery({ queryKey: keys.s2WorkOrderSites(), queryFn: permitApi.s2WorkOrderSites })
+  const { data: sites = [], isLoading: sitesLoading, isFetched: sitesFetched } = useQuery({ queryKey: keys.metaAllowedSites(), queryFn: metaApi.allowedSites, staleTime: 5 * 60_000 })
   const { data: users = [] } = useQuery({ queryKey: keys.s2Users(), queryFn: permitApi.s2Users })
-  const { data: woData, isLoading: woLoading } = useQuery({ queryKey: keys.s2WorkOrders(filterParams), queryFn: () => permitApi.s2WorkOrders(filterParams) })
+  const { data: woData, isLoading: woLoading } = useQuery({
+    queryKey: keys.s2WorkOrders(filterParams),
+    queryFn: () => permitApi.s2WorkOrders(filterParams),
+    enabled: filterApplied,
+  })
   const kpis: WorkOrderKpis = { ...DEFAULT_KPIS, ...(woData?.kpis ?? {}) }
   const workOrders = (woData?.data ?? []) as WorkOrder[]
-  const { data: ptws = [], isLoading: ptwLoading, error: ptwError } = useQuery({ queryKey: keys.s2Ptw(filterParams), queryFn: () => permitApi.s2ListPtw(filterParams) })
+  const { data: ptws = [], isLoading: ptwLoading, error: ptwError } = useQuery({
+    queryKey: keys.s2Ptw(filterParams),
+    queryFn: () => permitApi.s2ListPtw(filterParams),
+    enabled: filterApplied,
+  })
 
-  const applyFilter = () => { setSite(pendingSite); setStartDate(pendingStart); setEndDate(pendingEnd) }
+  const applyFilter = () => {
+    setSite(pendingSite)
+    setStartDate(pendingStart)
+    setEndDate(pendingEnd)
+    setFilterApplied(true)
+  }
 
   const tableRows = useMemo(() => ptws.map((p) => ({
     ...p,
@@ -998,10 +1013,20 @@ export function S2Page() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-semibold text-slate-400 uppercase">{tl('Site', lang)}</label>
-            <select className="select text-sm" value={pendingSite} onChange={(e) => setPendingSite(e.target.value)}>
-              <option value="">{tl('All Sites', lang)}</option>
-              {sites.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {sitesLoading ? (
+              <select className="select text-sm" disabled>
+                <option>Loading sites…</option>
+              </select>
+            ) : sitesFetched && sites.length === 0 ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 font-medium">
+                ⚠️ No site access configured. Contact your administrator.
+              </div>
+            ) : (
+              <select className="select text-sm" value={pendingSite} onChange={(e) => setPendingSite(e.target.value)}>
+                <option value="">— Select site —</option>
+                {sites.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-semibold text-slate-400 uppercase">{tl('Start Date', lang)}</label>
@@ -1018,8 +1043,8 @@ export function S2Page() {
         </div>
       </Card>
 
-      {/* KPI Cards */}
-      <KpiSummary kpis={kpis} loading={woLoading} />
+      {/* KPI Cards — only shown once filter is applied */}
+      {filterApplied && <KpiSummary kpis={kpis} loading={woLoading} />}
 
       {/* Toast */}
       {woToast && <Toast message={woToast} onDismiss={() => setWoToast('')} />}
@@ -1039,30 +1064,43 @@ export function S2Page() {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold text-slate-600">
                   {tl('PTW Table', lang)}
-                  <span className="ml-2 text-xs text-slate-400 font-normal">({ptws.length} {tl('records', lang)})</span>
+                  {filterApplied && <span className="ml-2 text-xs text-slate-400 font-normal">({ptws.length} {tl('records', lang)})</span>}
                 </span>
                 {site && <span className="text-xs text-amber-600 font-semibold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{site}</span>}
               </div>
-              {ptwError
-                ? <ErrorBanner message="Failed to load PTW records. Please try again." />
-                : <PaginatedTable
-                    cols={tableCols}
-                    rows={tableRows as unknown as Record<string, unknown>[]}
-                    loading={ptwLoading}
-                    emptyMsg={site ? 'No S1-submitted PTWs found for the selected filters.' : 'Select a site and date range, then click Apply Filter.'}
-                  />
-              }
+              {!filterApplied ? (
+                <div className="flex flex-col items-center justify-center py-14 gap-3 text-slate-400">
+                  <span className="text-4xl">🔍</span>
+                  <p className="text-sm font-medium text-slate-500">Select a site and date range, then click <strong>Apply Filter</strong></p>
+                </div>
+              ) : ptwError ? (
+                <ErrorBanner message="Failed to load PTW records. Please try again." />
+              ) : (
+                <PaginatedTable
+                  cols={tableCols}
+                  rows={tableRows as unknown as Record<string, unknown>[]}
+                  loading={ptwLoading}
+                  emptyMsg="No S1-submitted PTWs found for the selected filters."
+                />
+              )}
             </>
           )}
 
           {/* ── Work Orders tab ── */}
           {activeTab === 'workorders' && (
-            <WorkOrdersTable
-              workOrders={workOrders}
-              loading={woLoading}
-              allowEdit
-              onEdit={(wo) => setEditWO(wo)}
-            />
+            !filterApplied ? (
+              <div className="flex flex-col items-center justify-center py-14 gap-3 text-slate-400">
+                <span className="text-4xl">🔍</span>
+                <p className="text-sm font-medium text-slate-500">Select a site and date range, then click <strong>Apply Filter</strong></p>
+              </div>
+            ) : (
+              <WorkOrdersTable
+                workOrders={workOrders}
+                loading={woLoading}
+                allowEdit
+                onEdit={(wo) => setEditWO(wo)}
+              />
+            )
           )}
         </div>
       </div>

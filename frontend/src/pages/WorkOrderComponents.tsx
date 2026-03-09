@@ -2,8 +2,10 @@
 // Shared Work Order modal, table, and sub-nav used by S2Page and S3Page.
 
 import React, { useState, useMemo, useCallback } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { permitApi } from '@/lib/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { permitApi, metaApi } from '@/lib/api'
+import { keys } from '@/hooks/useQueryKeys'
+import { useUser } from '@/store/authStore'
 import { Button, Modal, Spinner } from '@/components/ui'
 import type { WorkOrder, WorkOrderCreateInput, WorkOrderUpdateInput } from '@/types'
 
@@ -48,20 +50,58 @@ interface CreatableMultiProps {
   onChange: (v: string[]) => void
   disabled?: boolean
   placeholder?: string
+  /** Optional list of suggestions from master_db when a site is selected */
+  suggestions?: string[]
+  /** True while the suggestions query is in-flight */
+  suggestionsLoading?: boolean
+  /** True when a site has been selected (controls whether to show the dropdown UI) */
+  siteSelected?: boolean
 }
 
-export function CreatableMultiInput({ label, values, onChange, disabled, placeholder }: CreatableMultiProps) {
+export function CreatableMultiInput({
+  label, values, onChange, disabled, placeholder, suggestions,
+  suggestionsLoading, siteSelected,
+}: CreatableMultiProps) {
   const [input, setInput] = useState('')
 
-  const add = () => {
-    const t = input.trim()
+  const add = (val?: string) => {
+    const t = (val ?? input).trim()
     if (t && !values.includes(t)) onChange([...values, t])
-    setInput('')
+    if (!val) setInput('')
   }
+
+  const availableSuggestions = (suggestions ?? []).filter((s) => !values.includes(s))
+  const showDropdownArea = siteSelected // show dropdown UI whenever a site is chosen
 
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</label>
+
+      {/* Suggestion dropdown — visible as soon as a site is selected */}
+      {showDropdownArea && (
+        <select
+          className="select text-sm"
+          value=""
+          onChange={(e) => { if (e.target.value) add(e.target.value) }}
+          disabled={disabled || suggestionsLoading || availableSuggestions.length === 0}
+        >
+          {suggestionsLoading
+            ? <option value="">Loading suggestions…</option>
+            : availableSuggestions.length === 0
+              ? <option value="">— No suggestions for this site —</option>
+              : (
+                <>
+                  <option value="">— Select from list —</option>
+                  {availableSuggestions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </>
+              )
+          }
+        </select>
+      )}
+
+      {/* Manual input + Add button (preserved as-is) */}
       <div className="flex gap-2">
         <input
           type="text"
@@ -72,8 +112,10 @@ export function CreatableMultiInput({ label, values, onChange, disabled, placeho
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
           disabled={disabled}
         />
-        <Button variant="ghost" size="sm" onClick={add} disabled={disabled || !input.trim()}>+ Add</Button>
+        <Button variant="ghost" size="sm" onClick={() => add()} disabled={disabled || !input.trim()}>+ Add</Button>
       </div>
+
+      {/* Selected values as tags */}
       {values.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-1">
           {values.map((v) => (
@@ -111,6 +153,7 @@ export function WorkOrderModal({
   mode, initialData, portal, editPortal, sites, open, onClose, onSuccess,
 }: WorkOrderModalProps) {
   const qc = useQueryClient()
+  useUser() // ensures auth context is available for API calls
 
   const parseCSV = (v: string | null | undefined) =>
     (v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
@@ -124,6 +167,34 @@ export function WorkOrderModal({
   const [remark, setRemark]           = useState('')
   const [submitting, setSubmitting]   = useState(false)
   const [error, setError]             = useState('')
+
+  // Feature 1: fetch allowed sites for the logged-in user from dashboard_users
+  const { data: allowedSites = [], isLoading: sitesLoading, isFetched: sitesFetched } = useQuery({
+    queryKey: keys.metaAllowedSites(),
+    queryFn: metaApi.allowedSites,
+    enabled: open,
+    staleTime: 5 * 60_000,
+  })
+
+  // Feature 2 & 3: fetch location / equipment suggestions when a site is selected
+  const { data: locationSuggestions = [], isFetching: locLoading } = useQuery({
+    queryKey: keys.metaMasterLocations(siteName),
+    queryFn: () => metaApi.masterLocations(siteName),
+    enabled: open && !!siteName,
+    staleTime: 5 * 60_000,
+  })
+
+  const { data: equipmentSuggestions = [], isFetching: equipLoading } = useQuery({
+    queryKey: keys.metaMasterEquipment(siteName),
+    queryFn: () => metaApi.masterEquipment(siteName),
+    enabled: open && !!siteName,
+    staleTime: 5 * 60_000,
+  })
+
+  // The site dropdown shows user-specific allowed sites.
+  // Falls back to the prop-provided sites list if allowed-sites query is empty
+  // (e.g. before the query resolves or if dashboard_users entry is missing).
+  const siteOptions = allowedSites.length > 0 ? allowedSites : sites
 
   React.useEffect(() => {
     if (!open) return
@@ -186,20 +257,30 @@ export function WorkOrderModal({
       <div className="flex flex-col gap-5 pb-2">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-          {/* Site Name */}
+          {/* Site Name — filtered by logged-in user's allowed sites */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
               Site Name <span className="text-red-500">*</span>
             </label>
-            <select
-              className="select text-sm"
-              value={siteName}
-              onChange={(e) => setSiteName(e.target.value)}
-              disabled={submitting}
-            >
-              <option value="">— Select Site —</option>
-              {sites.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {sitesLoading ? (
+              <select className="select text-sm" disabled>
+                <option>Loading sites…</option>
+              </select>
+            ) : sitesFetched && siteOptions.length === 0 ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 font-medium">
+                ⚠️ No site access configured for your account. Contact your administrator.
+              </div>
+            ) : (
+              <select
+                className="select text-sm"
+                value={siteName}
+                onChange={(e) => { setSiteName(e.target.value); setLocations([]); setEquipments([]) }}
+                disabled={submitting}
+              >
+                <option value="">— Select Site —</option>
+                {siteOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
           </div>
 
           {/* Frequency */}
@@ -220,22 +301,28 @@ export function WorkOrderModal({
             </select>
           </div>
 
-          {/* Location */}
+          {/* Location — suggestions from master_db when a site is selected */}
           <CreatableMultiInput
             label="Location"
             values={locations}
             onChange={setLocations}
             disabled={submitting}
             placeholder="e.g. Inverter Yard…"
+            suggestions={locationSuggestions}
+            suggestionsLoading={locLoading}
+            siteSelected={!!siteName}
           />
 
-          {/* Equipment */}
+          {/* Equipment — suggestions from master_db when a site is selected */}
           <CreatableMultiInput
             label="Equipment"
             values={equipments}
             onChange={setEquipments}
             disabled={submitting}
             placeholder="e.g. Transformer…"
+            suggestions={equipmentSuggestions}
+            suggestionsLoading={equipLoading}
+            siteSelected={!!siteName}
           />
 
           {/* Planned Date */}

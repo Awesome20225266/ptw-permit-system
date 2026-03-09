@@ -10,7 +10,7 @@ DELETE /api/v1/comments/{id}
 from __future__ import annotations
 from datetime import date
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 from app.models.auth import UserInfo
 from app.models.comments import BulkInsertResult, Comment, CommentCreate, CommentUpdate
 from app.services import comments_service as svc
@@ -41,6 +41,7 @@ async def bulk_create_comments(payloads: list[dict[str, Any]], _user: UserInfo =
 async def update_comment(comment_id: Any = Path(...), body: CommentUpdate = ..., _user: UserInfo = Depends(get_current_user)) -> dict:
     return svc.update_comment(comment_id, body.model_dump(exclude_none=True))
 
-@router.delete("/{comment_id}", status_code=204)
-async def delete_comment(comment_id: Any = Path(...), _user: UserInfo = Depends(get_current_user)) -> None:
+@router.delete("/{comment_id}")
+async def delete_comment(comment_id: Any = Path(...), _user: UserInfo = Depends(get_current_user)) -> Response:
     svc.delete_comment(comment_id)
+    return Response(status_code=204)

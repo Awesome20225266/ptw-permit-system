@@ -251,6 +251,18 @@ export const metaApi = {
     http
       .get<Record<string, unknown>[]>('/meta/sample', { params: { table_name: tableName, limit } })
       .then((r) => r.data),
+
+  /** Sites the logged-in user is allowed to access (from dashboard_users.site) */
+  allowedSites: () =>
+    http.get<string[]>('/meta/allowed-sites').then((r) => r.data),
+
+  /** Distinct locations for a site from master_db */
+  masterLocations: (siteName: string) =>
+    http.get<string[]>('/meta/master-locations', { params: { site_name: siteName } }).then((r) => r.data),
+
+  /** Distinct equipment for a site from master_db */
+  masterEquipment: (siteName: string) =>
+    http.get<string[]>('/meta/master-equipment', { params: { site_name: siteName } }).then((r) => r.data),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

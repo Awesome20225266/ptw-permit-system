@@ -12,22 +12,47 @@ from __future__ import annotations
 from typing import Optional
 
 import duckdb
+import pandas as pd
 from supabase import Client, create_client
 
 from app.config import get_settings
 
 
 # ---------------------------------------------------------------------------
-# DuckDB (BYPASSED)
+# DuckDB null-object stub — prevents 500 errors when DuckDB is bypassed
 # ---------------------------------------------------------------------------
 
+
+class _NullDuckDBResult:
+    """Mimics DuckDB cursor result — returns empty data for all fetch methods."""
+    def fetchall(self) -> list:
+        return []
+    def fetchone(self):
+        return None
+    def fetchdf(self) -> "pd.DataFrame":
+        return pd.DataFrame()
+
+
+class _NullDuckDBConnection:
+    """
+    Null-object that replaces a real DuckDB connection when DB is bypassed.
+    All query/fetch methods return empty results instead of raising AttributeError.
+    Supports the context-manager and .close() protocol used by service functions.
+    """
+    def execute(self, *_args, **_kwargs) -> _NullDuckDBResult:
+        return _NullDuckDBResult()
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+
 def _ensure_db_local(db_local: Optional[str] = None) -> Optional[str]:
-    """
-    DuckDB is intentionally bypassed.
-    """
-
-    print("⚠️ DuckDB feature is bypassed. No database will be loaded.", flush=True)
-
     return None
 
 
@@ -35,51 +60,60 @@ def _ensure_db_local(db_local: Optional[str] = None) -> Optional[str]:
 # DuckDB connection
 # ---------------------------------------------------------------------------
 
-def get_duckdb_connection(db_local: Optional[str] = None) -> Optional[duckdb.DuckDBPyConnection]:
+def get_duckdb_connection(db_local: Optional[str] = None) -> _NullDuckDBConnection:
     """
-    Return None since DuckDB is disabled.
+    DuckDB is disabled. Returns a null-object stub so callers never crash.
     """
-
-    print("⚠️ DuckDB connection requested but DB is bypassed.", flush=True)
-
-    return None
+    return _NullDuckDBConnection()
 
 
 # ---------------------------------------------------------------------------
-# Supabase client
+# Supabase client — module-level singletons (one per key type)
 # ---------------------------------------------------------------------------
 
-def get_supabase_client(*, prefer_service_role: bool = True) -> Client:
-    """
-    Create Supabase client using environment settings.
-    """
+_supabase_anon: Optional[Client] = None
+_supabase_service: Optional[Client] = None
 
+
+def _build_supabase_client(key: str) -> Client:
     settings = get_settings()
-
     url_str = settings.SUPABASE_URL.strip()
-
     if not url_str.startswith(("http://", "https://")):
         raise ValueError(
             f"Invalid SUPABASE_URL format: '{url_str}'. "
             "URL must start with http:// or https://"
         )
-
     if not url_str.endswith("/"):
         url_str = url_str + "/"
+    return create_client(url_str, key)
 
-    key = (
-        settings.SUPABASE_SERVICE_ROLE_KEY
-        if (prefer_service_role and settings.SUPABASE_SERVICE_ROLE_KEY)
-        else settings.SUPABASE_ANON_KEY
-    )
 
-    if not key:
+def get_supabase_client(*, prefer_service_role: bool = True) -> Client:
+    """
+    Return a cached Supabase client singleton.
+    Two instances are kept: one for the service-role key, one for the anon key.
+    Creating a client is expensive (HTTP session setup), so reusing the same
+    object across requests significantly reduces per-request overhead.
+    """
+    global _supabase_anon, _supabase_service
+
+    settings = get_settings()
+
+    if prefer_service_role and settings.SUPABASE_SERVICE_ROLE_KEY:
+        if _supabase_service is None:
+            _supabase_service = _build_supabase_client(
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
+        return _supabase_service
+
+    if not settings.SUPABASE_ANON_KEY:
         raise ValueError(
             "Missing Supabase key. "
             "Set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY."
         )
-
-    return create_client(url_str, key)
+    if _supabase_anon is None:
+        _supabase_anon = _build_supabase_client(settings.SUPABASE_ANON_KEY)
+    return _supabase_anon
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +130,7 @@ def init_duckdb() -> None:
 
     global _duckdb_path
 
-    print("⚠️ DuckDB initialization skipped.", flush=True)
+    print("[DuckDB] Initialization skipped.", flush=True)
 
     _duckdb_path = None
 

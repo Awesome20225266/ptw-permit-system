@@ -35,6 +35,9 @@ export const keys = {
   metaTables: () => ['meta', 'tables'] as const,
   metaSchema: (table: string) => ['meta', 'schema', table] as const,
   metaSample: (table: string, limit: number) => ['meta', 'sample', table, limit] as const,
+  metaAllowedSites: () => ['meta', 'allowed-sites'] as const,
+  metaMasterLocations: (site: string) => ['meta', 'master-locations', site] as const,
+  metaMasterEquipment: (site: string) => ['meta', 'master-equipment', site] as const,
 
   // Permits S1
   s1WorkOrderSites: () => ['permits', 's1', 'work-order-sites'] as const,

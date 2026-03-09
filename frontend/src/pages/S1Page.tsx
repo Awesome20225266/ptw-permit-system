@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import Select from 'react-select'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { permitApi, downloadBlob } from '@/lib/api'
+import { permitApi, metaApi, downloadBlob } from '@/lib/api'
 import { keys } from '@/hooks/useQueryKeys'
 import { ptw_status_variant, ptw_status_label, fmtDate, fmtDateTime } from '@/lib/utils'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Spinner, Modal } from '@/components/ui'
@@ -1731,10 +1731,11 @@ export function S1Page() {
   // ── Cross-tab edit state ────────────────────────────────────────────────
   const [editTarget, setEditTarget] = useState<PTWRequest | null>(null)
 
-  // ── Site list ───────────────────────────────────────────────────────────
-  const { data: siteList = [] } = useQuery({
-    queryKey: keys.s1WorkOrderSites(),
-    queryFn: () => permitApi.s1WorkOrderSites(),
+  // ── Site list — filtered by logged-in user's access (dashboard_users.site → master_db) ──
+  const { data: siteList = [], isLoading: sitesLoading, isFetched: sitesFetched } = useQuery({
+    queryKey: keys.metaAllowedSites(),
+    queryFn: metaApi.allowedSites,
+    staleTime: 5 * 60_000,
   })
 
   // ── Work orders query (for KPIs + WorkOrdersTab) ────────────────────────
@@ -1806,14 +1807,24 @@ export function S1Page() {
             <label className="text-[11px] font-semibold text-surface-muted uppercase tracking-wide">
               {tl('Site', lang)} <span className="text-red-500">*</span>
             </label>
-            <select
-              className="select text-sm"
-              value={pendingSite}
-              onChange={(e) => setPendingSite(e.target.value)}
-            >
-              <option value="">— Select site —</option>
-              {siteList.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {sitesLoading ? (
+              <select className="select text-sm" disabled>
+                <option>Loading sites…</option>
+              </select>
+            ) : sitesFetched && siteList.length === 0 ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 font-medium">
+                ⚠️ No site access configured. Contact your administrator.
+              </div>
+            ) : (
+              <select
+                className="select text-sm"
+                value={pendingSite}
+                onChange={(e) => setPendingSite(e.target.value)}
+              >
+                <option value="">— Select site —</option>
+                {siteList.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-semibold text-surface-muted uppercase tracking-wide">

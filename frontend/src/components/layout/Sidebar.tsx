@@ -19,9 +19,9 @@ const ALL_NAV: NavItem[] = [
   { key: 'meta_viewer',  label: 'Meta Viewer',          icon: '🧭', group: 'Analytics' },
   { key: 'scb_ot',       label: 'SCB OT',               icon: '⚡', group: 'Analytics' },
   { key: 'raw_analyser', label: 'Raw Analyser',         icon: '📈', group: 'Analytics' },
-  { key: 's1',           label: 'S1 — Receiver',        icon: '📋', group: 'Permit' },
-  { key: 's2',           label: 'S2 — Forwarding',      icon: '📤', group: 'Permit' },
-  { key: 's3',           label: 'S3 — Approval',        icon: '✅', group: 'Permit' },
+  { key: 's1',           label: 'S1 — Technician',      icon: '📋', group: 'Permit' },
+  { key: 's2',           label: 'S2 — Supervisor',      icon: '📤', group: 'Permit' },
+  { key: 's3',           label: 'S3 — Manager',         icon: '✅', group: 'Permit' },
 ]
 
 interface SidebarProps {
