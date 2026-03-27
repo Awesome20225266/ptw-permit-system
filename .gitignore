@@ -1,0 +1,86 @@
+# ─── Secrets — NEVER commit these ────────────────────────────────────────────
+secrets.toml
+secrets.toml.*
+*.secrets.toml
+.env
+.env.*
+*.env
+!.env.example
+!secrets.toml.example
+
+# ─── Node / npm ───────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
+build/
+dist/
+out/
+.next/
+.nuxt/
+.cache/
+
+# ─── Python virtual environments ──────────────────────────────────────────────
+.venv/
+.venv_old/
+venv/
+env/
+backend/.venv/
+backend/.venv_old/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+.Python
+*.egg-info/
+dist-info/
+.eggs/
+
+# ─── OS / editors ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Large binary / database files (GitHub 100 MB hard limit) ─────────────────
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.arrow
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.bin
+*.weights
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+
+# ─── Temporary / misc ─────────────────────────────────────────────────────────
+*.tmp
+*.temp
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
